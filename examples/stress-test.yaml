@@ -1,0 +1,33 @@
+name: 2ShipStressTest
+description: Exercises the expanded 2Ship APWorld option surface
+game: 2 Ship 2 Harkinian
+requires:
+  version: 0.6.7
+
+2 Ship 2 Harkinian:
+  progression_balancing: 50
+  accessibility: full
+  check_scope: all
+  logic_mode: no_logic
+  shuffle_boss_remains: true
+  shuffle_boss_souls: true
+  shuffle_enemy_souls: true
+  shuffle_swim: true
+  shuffle_ocarina_buttons: true
+  shuffle_song_double_time: true
+  shuffle_song_inverted_time: true
+  shuffle_song_sun: true
+  shuffle_song_saria: true
+  shuffle_tycoon_wallet: true
+  plentiful_items: true
+  shuffle_time: true
+  clock_progression: progressive_ascending
+  clock_terminal_time: 300
+  shuffle_traps: true
+  trap_amount: 50
+  triforce_hunt: true
+  triforce_pieces_required: 20
+  triforce_pieces_in_pool: 30
+  starting_health: 1
+  hint_gossip_stones: true
+  gossip_hint_strength: 100

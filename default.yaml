@@ -1,0 +1,13 @@
+name: 2ShipPlayer
+description: Default 2 Ship 2 Harkinian Archipelago settings
+game: 2 Ship 2 Harkinian
+requires:
+  version: 0.6.7
+
+2 Ship 2 Harkinian:
+  progression_balancing: 50
+  accessibility: full
+  check_scope: core
+  logic_mode: glitchless
+  shuffle_boss_remains: true
+  moon_remains_required: 4

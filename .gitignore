@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Generated packages and local runtime files
+dist/
+generated-o2r/
+remote-build/
+*.apworld
+*.o2r
+*.z64
+*.elf
+*.appimage
+
+# Upstream client is published through its own fork
+2ship2harkinian/
+2ship-poptracker/
+
+# Server-specific deployment material stays private
+deploy/
