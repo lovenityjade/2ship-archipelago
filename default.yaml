@@ -11,3 +11,4 @@ requires:
   logic_mode: glitchless
   shuffle_boss_remains: true
   moon_remains_required: 4
+  skeleton_key: false

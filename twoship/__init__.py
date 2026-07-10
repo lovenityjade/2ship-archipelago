@@ -214,6 +214,8 @@ class TwoShipWorld(World):
                         pool[index] = "RI_JUNK"
 
         extras = ["RI_PROGRESSIVE_SWORD", "RI_SHIELD_HERO"]
+        if self.options.skeleton_key.value:
+            extras.append("RI_SKELETON_KEY")
         if self.options.shuffle_boss_souls.value:
             extras.extend(symbol for symbol in ITEM_DATA if symbol.startswith("RI_SOUL_BOSS_"))
             if self.options.triforce_hunt.value and "RI_SOUL_BOSS_MAJORA" in extras:

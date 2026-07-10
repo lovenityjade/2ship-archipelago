@@ -166,6 +166,7 @@ ShuffleSongSun = toggle("ShuffleSongSun", "Sun's Song")
 ShuffleSongSaria = toggle("ShuffleSongSaria", "Saria's Song")
 ShuffleTycoonWallet = toggle("ShuffleTycoonWallet", "Tycoon's Wallet")
 PlentifulItems = toggle("PlentifulItems", "Plentiful Items")
+SkeletonKey = toggle("SkeletonKey", "Skeleton Key", "Adds one master key that unlocks every door normally locked by a small key.")
 ShuffleBossSouls = toggle("ShuffleBossSouls", "Boss Souls")
 ShuffleEnemySouls = toggle("ShuffleEnemySouls", "Enemy Souls")
 ShuffleTime = toggle("ShuffleTime", "Shuffle Time")
@@ -230,6 +231,7 @@ class TwoShipOptions(PerGameCommonOptions):
     shuffle_song_saria: ShuffleSongSaria
     shuffle_tycoon_wallet: ShuffleTycoonWallet
     plentiful_items: PlentifulItems
+    skeleton_key: SkeletonKey
     shuffle_boss_souls: ShuffleBossSouls
     shuffle_enemy_souls: ShuffleEnemySouls
     shuffle_time: ShuffleTime
@@ -283,6 +285,7 @@ RO_OPTION_FIELDS = {
     "RO_PLACEMENT_SMALL_KEYS": "small_key_placement",
     "RO_PLACEMENT_STRAY_FAIRIES": "stray_fairy_placement",
     "RO_PLENTIFUL_ITEMS": "plentiful_items",
+    "RO_SKELETON_KEY": "skeleton_key",
     "RO_SHUFFLE_BARREL_DROPS": "shuffle_barrel_drops",
     "RO_SHUFFLE_BOSS_REMAINS": "shuffle_boss_remains",
     "RO_SHUFFLE_BOSS_SOULS": "shuffle_boss_souls",
@@ -334,7 +337,7 @@ option_groups = [
     OptionGroup("Item Pool", [ShuffleSwim, ShuffleOcarinaButtons, ShuffleSongDoubleTime,
                               ShuffleSongInvertedTime, ShuffleSongSun, ShuffleSongSaria,
                               ShuffleTycoonWallet, PlentifulItems, ShuffleBossSouls, ShuffleEnemySouls,
-                              ShuffleTraps, TrapAmount, TriforceHunt, TriforcePieceCount]),
+                              SkeletonKey, ShuffleTraps, TrapAmount, TriforceHunt, TriforcePieceCount]),
     OptionGroup("Time", [ShuffleTime, ClockProgression, ClockTerminalTime]),
     OptionGroup("Starting Inventory", [StartingRupees, StartingConsumables, StartingMapsCompasses, StartingHealth]),
     OptionGroup("Hints", [HintSpiderHouses, HintGossipStones, HintStrength, HintPurchasable,
