@@ -7,6 +7,11 @@ requires:
 2 Ship 2 Harkinian:
   progression_balancing: 50
   accessibility: full
+  start_inventory_from_pool:
+    Ocarina: 1
+    Song Time: 1
+    Progressive Sword: 1
+    Shield Hero: 1
   check_scope: core
   logic_mode: glitchless
   shuffle_boss_remains: true

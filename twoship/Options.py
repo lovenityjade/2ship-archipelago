@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from Options import Choice, DefaultOnToggle, OptionGroup, PerGameCommonOptions, Range, Toggle
+from Options import Choice, DefaultOnToggle, OptionGroup, PerGameCommonOptions, Range, StartInventoryPool, Toggle
 
 
 class CheckScope(Choice):
@@ -139,6 +139,17 @@ class NativeToggle(Toggle):
     default = 0
 
 
+class TwoShipStartInventory(StartInventoryPool):
+    """Items granted at the start and removed from the randomized item pool."""
+
+    default = {
+        "Ocarina": 1,
+        "Song Time": 1,
+        "Progressive Sword": 1,
+        "Shield Hero": 1,
+    }
+
+
 def toggle(name: str, display_name: str, doc: str = "") -> type[NativeToggle]:
     return type(name, (NativeToggle,), {"display_name": display_name, "__doc__": doc, "__module__": __name__})
 
@@ -190,6 +201,7 @@ HintBankSign = toggle("HintBankSign", "Bank Reward Hint")
 
 @dataclass
 class TwoShipOptions(PerGameCommonOptions):
+    start_inventory_from_pool: TwoShipStartInventory
     check_scope: CheckScope
 
     logic_mode: LogicMode
