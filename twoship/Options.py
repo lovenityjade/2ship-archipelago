@@ -85,16 +85,52 @@ class SkulltulaCount(Range):
     default = 30
 
 
+class SkulltulaTokensRequired(SkulltulaCount):
+    """Gold Skulltula tokens required for token-based rewards."""
+
+    display_name = "Skulltula Tokens Required"
+
+
+class SkulltulaTokensInPool(SkulltulaCount):
+    """Gold Skulltula tokens placed in the randomized item pool."""
+
+    display_name = "Skulltula Tokens in Pool"
+
+
 class StrayFairyCount(Range):
     range_start = 1
     range_end = 15
     default = 15
 
 
+class StrayFairiesRequired(StrayFairyCount):
+    """Stray Fairies required for Great Fairy rewards."""
+
+    display_name = "Stray Fairies Required"
+
+
+class StrayFairiesInPool(StrayFairyCount):
+    """Stray Fairies of each dungeon placed in the randomized item pool."""
+
+    display_name = "Stray Fairies in Pool"
+
+
 class TriforcePieceCount(Range):
     range_start = 1
     range_end = 1000
     default = 15
+
+
+class TriforcePiecesRequired(TriforcePieceCount):
+    """Triforce Pieces required to complete a Triforce Hunt."""
+
+    display_name = "Triforce Pieces Required"
+
+
+class TriforcePiecesInPool(TriforcePieceCount):
+    """Triforce Pieces placed in the randomized item pool."""
+
+    display_name = "Triforce Pieces in Pool"
 
 
 class StartingHealth(Range):
@@ -177,7 +213,11 @@ ShuffleSongSun = toggle("ShuffleSongSun", "Sun's Song")
 ShuffleSongSaria = toggle("ShuffleSongSaria", "Saria's Song")
 ShuffleTycoonWallet = toggle("ShuffleTycoonWallet", "Tycoon's Wallet")
 PlentifulItems = toggle("PlentifulItems", "Plentiful Items")
-SkeletonKey = toggle("SkeletonKey", "Skeleton Key", "Adds one master key that unlocks every door normally locked by a small key.")
+SkeletonKey = toggle(
+    "SkeletonKey",
+    "Include Skeleton Key in Pool",
+    "Replaces one junk item with a master key that unlocks every door normally locked by a small key.",
+)
 ShuffleBossSouls = toggle("ShuffleBossSouls", "Boss Souls")
 ShuffleEnemySouls = toggle("ShuffleEnemySouls", "Enemy Souls")
 ShuffleTime = toggle("ShuffleTime", "Shuffle Time")
@@ -221,10 +261,10 @@ class TwoShipOptions(PerGameCommonOptions):
     shuffle_boss_remains: ShuffleBossRemains
     shuffle_cows: ShuffleCows
     shuffle_gold_skulltulas: ShuffleGoldSkulltulas
-    skulltula_tokens_required: SkulltulaCount
-    skulltula_tokens_in_pool: SkulltulaCount
-    stray_fairies_required: StrayFairyCount
-    stray_fairies_in_pool: StrayFairyCount
+    skulltula_tokens_required: SkulltulaTokensRequired
+    skulltula_tokens_in_pool: SkulltulaTokensInPool
+    stray_fairies_required: StrayFairiesRequired
+    stray_fairies_in_pool: StrayFairiesInPool
     shuffle_pot_drops: ShufflePotDrops
     shuffle_crate_drops: ShuffleCrateDrops
     shuffle_barrel_drops: ShuffleBarrelDrops
@@ -252,8 +292,8 @@ class TwoShipOptions(PerGameCommonOptions):
     shuffle_traps: ShuffleTraps
     trap_amount: TrapAmount
     triforce_hunt: TriforceHunt
-    triforce_pieces_required: TriforcePieceCount
-    triforce_pieces_in_pool: TriforcePieceCount
+    triforce_pieces_required: TriforcePiecesRequired
+    triforce_pieces_in_pool: TriforcePiecesInPool
 
     starting_rupees: StartingRupees
     starting_consumables: StartingConsumables
@@ -343,13 +383,16 @@ option_groups = [
                                      Count0To4, MaskCount, MoonRemainsRequired]),
     OptionGroup("Location Shuffles", [ShuffleOwlStatues, ShuffleShops, ShuffleTingleShops,
                                        ShuffleBossRemains, ShuffleCows, ShuffleGoldSkulltulas,
-                                       SkulltulaCount, StrayFairyCount, ShufflePotDrops, ShuffleCrateDrops,
+                                       SkulltulaTokensRequired, SkulltulaTokensInPool,
+                                       StrayFairiesRequired, StrayFairiesInPool,
+                                       ShufflePotDrops, ShuffleCrateDrops,
                                        ShuffleBarrelDrops, ShuffleSnowballDrops, ShuffleGrassDrops,
                                        ShuffleTreeDrops, ShuffleFrogs, ShuffleFreestandingItems, ShuffleEnemyDrops]),
     OptionGroup("Item Pool", [ShuffleSwim, ShuffleOcarinaButtons, ShuffleSongDoubleTime,
                               ShuffleSongInvertedTime, ShuffleSongSun, ShuffleSongSaria,
                               ShuffleTycoonWallet, PlentifulItems, ShuffleBossSouls, ShuffleEnemySouls,
-                              SkeletonKey, ShuffleTraps, TrapAmount, TriforceHunt, TriforcePieceCount]),
+                              SkeletonKey, ShuffleTraps, TrapAmount, TriforceHunt,
+                              TriforcePiecesRequired, TriforcePiecesInPool]),
     OptionGroup("Time", [ShuffleTime, ClockProgression, ClockTerminalTime]),
     OptionGroup("Starting Inventory", [StartingRupees, StartingConsumables, StartingMapsCompasses, StartingHealth]),
     OptionGroup("Hints", [HintSpiderHouses, HintGossipStones, HintStrength, HintPurchasable,
