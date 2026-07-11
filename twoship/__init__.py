@@ -154,6 +154,10 @@ class TwoShipWorld(World):
                 included.append((name, data))
         return included
 
+    def active_locations(self):
+        excluded = self.options.exclude_locations.value
+        return [(name, data) for name, data in self.included_locations() if name not in excluded]
+
     def native_option_values(self) -> dict[str, int]:
         values = {ro_name: getattr(self.options, field_name).value
                   for ro_name, field_name in RO_OPTION_FIELDS.items()}
@@ -183,7 +187,10 @@ class TwoShipWorld(World):
         termina = Region("Termina", self.player, self.multiworld)
         menu.connect(termina)
         for name, data in self.included_locations():
-            termina.locations.append(TwoShipLocation(self.player, name, LOCATION_ID_BASE + data[1], termina))
+            location = TwoShipLocation(self.player, name, LOCATION_ID_BASE + data[1], termina)
+            if name in self.options.exclude_locations.value:
+                location.place_locked_item(self.create_item("Junk"))
+            termina.locations.append(location)
         self.multiworld.regions += [menu, termina]
 
     def create_item(self, name: str) -> TwoShipItem:
@@ -193,7 +200,7 @@ class TwoShipWorld(World):
 
     def create_items(self) -> None:
         pool: list[str] = []
-        for _, (_, _, _, vanilla_item) in self.included_locations():
+        for _, (_, _, _, vanilla_item) in self.active_locations():
             symbol = vanilla_item if vanilla_item in ITEM_SYMBOL_TO_NAME else "RI_JUNK"
             pool.append(symbol)
 
@@ -289,7 +296,7 @@ class TwoShipWorld(World):
             "check_scope": self.options.check_scope.value,
             "item_id_base": ITEM_ID_BASE,
             "location_id_base": LOCATION_ID_BASE,
-            "active_locations": [data[1] for _, data in self.included_locations()],
+            "active_locations": [data[1] for _, data in self.active_locations()],
             "rando_options": self.native_option_values(),
         }
 
