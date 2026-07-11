@@ -1,6 +1,16 @@
 from dataclasses import dataclass
 
-from Options import Choice, DefaultOnToggle, OptionGroup, PerGameCommonOptions, Range, StartInventoryPool, Toggle
+from Options import (
+    Choice,
+    DefaultOnToggle,
+    OptionGroup,
+    PerGameCommonOptions,
+    Range,
+    StartInventory,
+    StartInventoryPool,
+    Toggle,
+    Visibility,
+)
 
 
 class CheckScope(Choice):
@@ -186,6 +196,12 @@ class TwoShipStartInventory(StartInventoryPool):
     }
 
 
+class HiddenStartInventory(StartInventory):
+    """Legacy starting inventory input hidden in favor of Start Inventory from Pool."""
+
+    visibility = Visibility.none
+
+
 def toggle(name: str, display_name: str, doc: str = "") -> type[NativeToggle]:
     return type(name, (NativeToggle,), {"display_name": display_name, "__doc__": doc, "__module__": __name__})
 
@@ -241,6 +257,7 @@ HintBankSign = toggle("HintBankSign", "Bank Reward Hint")
 
 @dataclass
 class TwoShipOptions(PerGameCommonOptions):
+    start_inventory: HiddenStartInventory
     start_inventory_from_pool: TwoShipStartInventory
     check_scope: CheckScope
 
@@ -394,7 +411,8 @@ option_groups = [
                               SkeletonKey, ShuffleTraps, TrapAmount, TriforceHunt,
                               TriforcePiecesRequired, TriforcePiecesInPool]),
     OptionGroup("Time", [ShuffleTime, ClockProgression, ClockTerminalTime]),
-    OptionGroup("Starting Inventory", [StartingRupees, StartingConsumables, StartingMapsCompasses, StartingHealth]),
+    OptionGroup("Starting Inventory", [TwoShipStartInventory, StartingRupees, StartingConsumables,
+                                        StartingMapsCompasses, StartingHealth]),
     OptionGroup("Hints", [HintSpiderHouses, HintGossipStones, HintStrength, HintPurchasable,
                            HintBossRemains, HintOathToOrder, HintTransformations, HintSongSoaring,
                            HintHookshot, HintBankSign]),
