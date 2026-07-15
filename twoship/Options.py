@@ -23,7 +23,7 @@ class CheckScope(Choice):
 
 
 class LogicMode(Choice):
-    """Native 2Ship logic mode. Archipelago logic is still conservative while the full region graph is developed."""
+    """Logic used by both Archipelago placement and native 2Ship check tracking."""
 
     display_name = "Logic"
     option_glitchless = 0
@@ -190,7 +190,7 @@ class TwoShipStartInventory(StartInventoryPool):
 
     default = {
         "Ocarina": 1,
-        "Song Time": 1,
+        "Song of Time": 1,
         "Progressive Sword": 1,
         "Shield Hero": 1,
     }

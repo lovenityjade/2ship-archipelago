@@ -44,10 +44,10 @@ def main() -> None:
 
     item_rows = {}
     for match in re.finditer(
-        r'RI\((RI_[A-Z0-9_]+),\s*"[^"]*",\s*"[^"]*",\s*(RITYPE_[A-Z0-9_]+)',
+        r'RI\((RI_[A-Z0-9_]+),\s*"[^"]*",\s*"[^"]*",\s*(RITYPE_[A-Z0-9_]+),\s*([A-Z0-9_]+)',
         items_cpp,
     ):
-        item_rows[match.group(1)] = match.group(2)
+        item_rows[match.group(1)] = (match.group(2), match.group(3))
 
     checks = []
     for name in check_ids:
@@ -60,7 +60,8 @@ def main() -> None:
     for name in item_ids:
         if name in {"RI_UNKNOWN", "RI_MAX", "RI_MAX_TRAP"} or name not in item_rows:
             continue
-        items.append((name, item_ordinals[name], item_rows[name]))
+        item_type, native_item = item_rows[name]
+        items.append((name, item_ordinals[name], item_type, native_item))
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with args.output.open("w", encoding="utf-8", newline="\n") as output:

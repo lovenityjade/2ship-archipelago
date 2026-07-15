@@ -7,7 +7,11 @@ from BaseClasses import Item, ItemClassification, Location, Region, Tutorial
 from Options import OptionError
 from worlds.AutoWorld import WebWorld, World
 from worlds.LauncherComponents import Component, Type, components, launch as launch_component
+from worlds.generic.Rules import set_rule
 
+from .Logic import LOGIC_ITEM_SYMBOLS, dungeon_item_rule, region_for
+from .NativeLogic import EVENT_PREFIX, REGION_PREFIX, NativeLogic
+from .logic_data import REGIONS
 from .Options import RO_OPTION_FIELDS, TwoShipOptions, option_groups
 from .data import CHECKS, ITEMS
 
@@ -15,7 +19,7 @@ from .data import CHECKS, ITEMS
 GAME_NAME = "2 Ship 2 Harkinian"
 ITEM_ID_BASE = 74_200_000
 LOCATION_ID_BASE = 74_210_000
-CLIENT_VERSION = "0.2.0"
+CLIENT_VERSION = "0.4.1"
 
 CONDITIONAL_LOCATION_OPTIONS = {
     "RCTYPE_BARREL": "shuffle_barrel_drops",
@@ -65,11 +69,14 @@ UNAVAILABLE_CHECKS = {
 
 
 def pretty_name(symbol: str) -> str:
+    if symbol == "RI_SONG_TIME":
+        return "Song of Time"
     return symbol.removeprefix("RC_").removeprefix("RI_").replace("_", " ").title()
 
 
-ITEM_DATA = {name: (ordinal, item_type) for name, ordinal, item_type in ITEMS}
-ITEM_NAME_TO_SYMBOL = {pretty_name(name): name for name, _, _ in ITEMS}
+ITEM_DATA = {name: (ordinal, item_type) for name, ordinal, item_type, _ in ITEMS}
+ITEM_NATIVE_ID = {name: native_item for name, _, _, native_item in ITEMS}
+ITEM_NAME_TO_SYMBOL = {pretty_name(name): name for name, _, _, _ in ITEMS}
 ITEM_SYMBOL_TO_NAME = {symbol: name for name, symbol in ITEM_NAME_TO_SYMBOL.items()}
 ITEM_NAME_TO_ID = {name: ITEM_ID_BASE + ITEM_DATA[symbol][0] for name, symbol in ITEM_NAME_TO_SYMBOL.items()}
 
@@ -121,7 +128,11 @@ class TwoShipWeb(WebWorld):
     )]
 
 
-def classification_for(item_type: str) -> ItemClassification:
+def classification_for(item_type: str, symbol: str | None = None) -> ItemClassification:
+    if symbol in LOGIC_ITEM_SYMBOLS or (symbol and symbol.startswith((
+        "RI_SOUL_", "RI_TIME_", "RI_OCARINA_BUTTON_", "RI_OWL_", "RI_ABILITY_",
+    ))):
+        return ItemClassification.progression
     if item_type in {"RITYPE_MAJOR", "RITYPE_BOSS_KEY", "RITYPE_SMALL_KEY", "RITYPE_MASK"}:
         return ItemClassification.progression
     if item_type in {"RITYPE_LESSER", "RITYPE_HEALTH", "RITYPE_STRAY_FAIRY", "RITYPE_SKULLTULA_TOKEN"}:
@@ -184,19 +195,71 @@ class TwoShipWorld(World):
 
     def create_regions(self) -> None:
         menu = Region("Menu", self.player, self.multiworld)
-        termina = Region("Termina", self.player, self.multiworld)
-        menu.connect(termina)
-        for name, data in self.included_locations():
-            location = TwoShipLocation(self.player, name, LOCATION_ID_BASE + data[1], termina)
+        regions = {symbol: Region(REGION_PREFIX + symbol, self.player, self.multiworld) for symbol in REGIONS}
+        logic = NativeLogic(self.player, self.options)
+        menu.connect(regions["RR_MAX"])
+
+        for source_symbol, data in REGIONS.items():
+            source = regions[source_symbol]
+            for index, (target, condition) in enumerate(data["connections"]):
+                # Native source marks this drop as one-way but leaves its forward
+                # condition false (the accompanying TODO notes the missing edge).
+                if source_symbol == "RR_STONE_TOWER_TEMPLE_ENTRANCE" and target == "RR_STONE_TOWER_TEMPLE_BRIDGE":
+                    condition = "true"
+                source.connect(regions[target], f"{source_symbol} connection {index}", logic.rule(condition))
+            for index, (target, _, _, condition) in enumerate(data["exits"]):
+                source.connect(regions[target], f"{source_symbol} exit {index}", logic.rule(condition))
+            for index, (event, condition) in enumerate(data["events"]):
+                location = TwoShipLocation(self.player, f"{EVENT_PREFIX}{event} ({source_symbol}:{index})", None, source)
+                location.place_locked_item(TwoShipItem(EVENT_PREFIX + event, ItemClassification.progression,
+                                                       None, self.player))
+                set_rule(location, logic.rule(condition))
+                source.locations.append(location)
+
+        check_occurrences: dict[str, list[tuple[str, str]]] = {}
+        for region_symbol, data in REGIONS.items():
+            for check, condition in data["checks"]:
+                check_occurrences.setdefault(check, []).append((region_symbol, condition))
+        included_locations = self.included_locations()
+        included_symbols = {data[0] for _, data in included_locations}
+        for name, data in included_locations:
+            symbol = data[0]
+            occurrences = tuple(check_occurrences.get(symbol, ()))
+            if not occurrences:
+                raise OptionError(f"Native 2Ship logic has no rule for {symbol}.")
+            owning_region = regions[occurrences[0][0]]
+            location = TwoShipLocation(self.player, name, LOCATION_ID_BASE + data[1], owning_region)
+            set_rule(location, logic.location_rule(occurrences))
+            broad_region = region_for(symbol)
+            location.item_rule = lambda item, r=broad_region: dungeon_item_rule(item.name, r, self.options)
             if name in self.options.exclude_locations.value:
                 location.place_locked_item(self.create_item("Junk"))
-            termina.locations.append(location)
-        self.multiworld.regions += [menu, termina]
+            owning_region.locations.append(location)
+
+        # Native generation still grants vanilla rewards from check categories
+        # that are not shuffled. Keep those rewards as internal AP events so
+        # they can participate in logic without becoming network locations.
+        for name, data in LOCATION_DATA.items():
+            symbol, _, _, vanilla_item = data
+            if symbol in included_symbols or vanilla_item not in ITEM_SYMBOL_TO_NAME:
+                continue
+            if classification_for(ITEM_DATA[vanilla_item][1], vanilla_item) != ItemClassification.progression:
+                continue
+            occurrences = tuple(check_occurrences.get(symbol, ()))
+            if not occurrences:
+                continue
+            owning_region = regions[occurrences[0][0]]
+            location = TwoShipLocation(self.player, f"2Ship Vanilla: {symbol}", None, owning_region)
+            location.place_locked_item(TwoShipItem(ITEM_SYMBOL_TO_NAME[vanilla_item],
+                                                   ItemClassification.progression, None, self.player))
+            set_rule(location, logic.location_rule(occurrences))
+            owning_region.locations.append(location)
+        self.multiworld.regions += [menu, *regions.values()]
 
     def create_item(self, name: str) -> TwoShipItem:
         symbol = ITEM_NAME_TO_SYMBOL[name]
         ordinal, item_type = ITEM_DATA[symbol]
-        return TwoShipItem(name, classification_for(item_type), ITEM_ID_BASE + ordinal, self.player)
+        return TwoShipItem(name, classification_for(item_type, symbol), ITEM_ID_BASE + ordinal, self.player)
 
     def create_items(self) -> None:
         pool: list[str] = []
@@ -273,7 +336,7 @@ class TwoShipWorld(World):
                                 if ITEM_DATA[symbol][1] == "RITYPE_JUNK"), None)
             if replacement is None:
                 replacement = next((index for index, symbol in enumerate(pool)
-                                    if classification_for(ITEM_DATA[symbol][1]) != ItemClassification.progression), None)
+                                    if classification_for(ITEM_DATA[symbol][1], symbol) != ItemClassification.progression), None)
             if replacement is None:
                 raise OptionError(f"Not enough replaceable items to add {extra} to the item pool.")
             pool[replacement] = extra
@@ -286,9 +349,12 @@ class TwoShipWorld(World):
                 lambda state: state.has("Triforce Piece", self.player, required)
         elif self.options.shuffle_boss_remains.value:
             remains = {"Remains Odolwa", "Remains Goht", "Remains Gyorg", "Remains Twinmold"}
-            self.multiworld.completion_condition[self.player] = lambda state: state.has_all(remains, self.player)
+            self.multiworld.completion_condition[self.player] = \
+                lambda state: state.has_all(remains, self.player) and state.can_reach(
+                    REGION_PREFIX + "RR_MOON_MAJORAS_LAIR", "Region", self.player)
         else:
-            self.multiworld.completion_condition[self.player] = lambda state: True
+            self.multiworld.completion_condition[self.player] = lambda state: state.can_reach(
+                REGION_PREFIX + "RR_MOON_MAJORAS_LAIR", "Region", self.player)
 
     def fill_slot_data(self) -> dict:
         return {

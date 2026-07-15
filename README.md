@@ -14,7 +14,7 @@ The native client source is maintained on the
 - The APWorld tables are generated from the native 2Ship enums.
 - The WebHost exposes the native seed settings in grouped Logic, Location,
   Item Pool, Time, Starting Inventory, and Hint sections.
-- APWorld 0.2 sends 2Ship's `RO_*` settings in slot data and the native client
+- APWorld 0.4 sends 2Ship's `RO_*` settings in slot data and the native client
   applies them before a new randomizer save is created.
 - The native client connects from `Rando > Archipelago`.
 - Archipelago's launcher exposes a `2Ship Client` component and forwards room
@@ -28,13 +28,18 @@ The file screen exposes `Start Archipelago` only after the slot data and
 location scout are synchronized. The client then associates the new save with
 its server, slot, and seed and applies the native randomizer settings from the
 AP slot.
-Full glitchless AP region logic remains the next major generation milestone;
-the current world uses a conservative minimal completion model.
+Archipelago placement is generated from 2Ship's native glitchless graph: 315
+regions, 2,478 check rules, 714 connections and exits, 117 events, 45 time
+slices, and the native enemy combat rules. Unshuffled vanilla checks remain as
+internal events so their rewards participate in logic exactly as they do in
+2Ship's solver. The APWorld also repairs the documented one-way Stone Tower
+Temple edge that is left disconnected in the native source.
 
 ## Refresh generated data
 
 ```sh
 python3 scripts/extract_2ship_data.py
+python3 scripts/extract_2ship_logic.py
 ```
 
 ## Build note
