@@ -19,7 +19,7 @@ from .data import CHECKS, ITEMS
 GAME_NAME = "2 Ship 2 Harkinian"
 ITEM_ID_BASE = 74_200_000
 LOCATION_ID_BASE = 74_210_000
-CLIENT_VERSION = "0.4.1"
+CLIENT_VERSION = "0.5.0"
 
 CONDITIONAL_LOCATION_OPTIONS = {
     "RCTYPE_BARREL": "shuffle_barrel_drops",
@@ -61,6 +61,8 @@ ALWAYS_SHUFFLED_SHOPS = {
     "RC_CURIOSITY_SHOP_SPECIAL_ITEM",
     "RC_BOMB_SHOP_ITEM_04_OR_CURIOSITY_SHOP_ITEM",
 }
+
+SHOP_CHECK_TYPES = {"RCTYPE_SHOP", "RCTYPE_TINGLE_SHOP"}
 
 UNAVAILABLE_CHECKS = {
     "RC_MOON_MAJORA_POT_01",
@@ -150,6 +152,7 @@ class TwoShipWorld(World):
     settings: ClassVar[TwoShipSettings]
     item_name_to_id = ITEM_NAME_TO_ID
     location_name_to_id = LOCATION_NAME_TO_ID
+    shop_prices: dict[int, int]
 
     def included_locations(self):
         if self.options.check_scope.value == 1:
@@ -193,10 +196,29 @@ class TwoShipWorld(World):
                                                        for name in vanilla_incompatible):
             raise OptionError("Vanilla logic is incompatible with options that add items to the pool.")
 
+        self.shop_prices = {
+            data[1]: self.random.randint(0, 200)
+            for _, data in self.active_locations()
+            if data[2] in SHOP_CHECK_TYPES
+        }
+
+        # Native 2Ship always grants one time unlock before play when time is
+        # shuffled. AP must make that item precollected because its file-create
+        # path intentionally skips native randomizer starting-item generation.
+        if self.options.shuffle_time.value:
+            if self.options.clock_progression.value == 0:
+                symbol = self.random.choice((
+                    "RI_TIME_DAY_1", "RI_TIME_NIGHT_1", "RI_TIME_DAY_2",
+                    "RI_TIME_NIGHT_2", "RI_TIME_DAY_3", "RI_TIME_NIGHT_3",
+                ))
+            else:
+                symbol = "RI_TIME_PROGRESSIVE"
+            self.multiworld.push_precollected(self.create_item(ITEM_SYMBOL_TO_NAME[symbol]))
+
     def create_regions(self) -> None:
         menu = Region("Menu", self.player, self.multiworld)
         regions = {symbol: Region(REGION_PREFIX + symbol, self.player, self.multiworld) for symbol in REGIONS}
-        logic = NativeLogic(self.player, self.options)
+        logic = NativeLogic(self.player, self.options, self.shop_prices)
         menu.connect(regions["RR_MAX"])
 
         for source_symbol, data in REGIONS.items():
@@ -260,6 +282,9 @@ class TwoShipWorld(World):
         symbol = ITEM_NAME_TO_SYMBOL[name]
         ordinal, item_type = ITEM_DATA[symbol]
         return TwoShipItem(name, classification_for(item_type, symbol), ITEM_ID_BASE + ordinal, self.player)
+
+    def get_filler_item_name(self) -> str:
+        return "Junk"
 
     def create_items(self) -> None:
         pool: list[str] = []
@@ -363,6 +388,7 @@ class TwoShipWorld(World):
             "item_id_base": ITEM_ID_BASE,
             "location_id_base": LOCATION_ID_BASE,
             "active_locations": [data[1] for _, data in self.active_locations()],
+            "shop_prices": [[check_id, price] for check_id, price in sorted(self.shop_prices.items())],
             "rando_options": self.native_option_values(),
         }
 

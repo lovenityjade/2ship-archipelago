@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from BaseClasses import CollectionState
 
-from .data import ITEMS
+from .data import CHECKS, ITEMS
 from .logic_data import ENEMY_RULES, ENEMY_SOULS, REGIONS, TIME_SLICES
 
 
@@ -16,6 +16,7 @@ REGION_PREFIX = "2Ship Region: "
 
 RI_NAMES = {symbol: symbol.removeprefix("RI_").replace("_", " ").title()
             for symbol, _, _, _ in ITEMS}
+CHECK_SYMBOL_TO_ID = {symbol: ordinal for symbol, ordinal, _, _ in CHECKS}
 NATIVE_ITEMS: dict[str, set[str]] = defaultdict(set)
 for symbol, _, _, native_item in ITEMS:
     if native_item != "ITEM_NONE":
@@ -92,16 +93,45 @@ for region in REGIONS.values():
     ALL_EXPRESSIONS.extend(row[-1] for row in region["exits"])
     EVENT_SYMBOLS.update(row[0] for row in region["events"])
 ALL_EXPRESSIONS.extend(ENEMY_RULES.values())
-CONSTANTS = {token for expression in ALL_EXPRESSIONS
-             for token in re.findall(r"\b[A-Z][A-Z0-9_]*\b", expression)}
 COMPILED = {expression: compile(_python_expression(expression), "<2Ship native logic>", "eval")
             for expression in set(ALL_EXPRESSIONS)}
+EXPRESSION_CONSTANTS = {
+    expression: {token: token for token in re.findall(r"\b[A-Z][A-Z0-9_]*\b", expression)}
+    for expression in COMPILED
+}
+
+
+class _LazyEventCounts(dict[str, int]):
+    def __init__(self, state: CollectionState, player: int):
+        super().__init__()
+        self.state = state
+        self.player = player
+
+    def __missing__(self, event: str) -> int:
+        value = self.state.count(EVENT_PREFIX + event, self.player)
+        self[event] = value
+        return value
+
+
+class _LazyEnvironment(dict[str, object]):
+    def __init__(self, values: dict[str, object], providers: dict[str, Callable[[], object]]):
+        super().__init__(values)
+        self.providers = providers
+
+    def __missing__(self, name: str) -> object:
+        provider = self.providers.get(name)
+        if provider is None:
+            raise KeyError(name)
+        value = provider()
+        self[name] = value
+        return value
 
 
 class NativeLogic:
-    def __init__(self, player: int, options):
+    def __init__(self, player: int, options, shop_prices: dict[int, int] | None = None):
         self.player = player
         self.options = options
+        self.shop_prices = shop_prices or {}
 
     def has_ri(self, state: CollectionState, symbol: str, count: int = 1) -> bool:
         if symbol == "RI_SONG_LULLABY_INTRO":
@@ -188,7 +218,13 @@ class NativeLogic:
             if owned:
                 for index in range(start, end + 1):
                     mask |= 1 << index
-        return mask or 1
+        return mask
+
+    def can_afford(self, state: CollectionState, check: str) -> bool:
+        check_id = CHECK_SYMBOL_TO_ID.get(check)
+        price = self.shop_prices.get(check_id, 0) if check_id is not None else 0
+        wallet = self.wallet_level(state)
+        return price < 100 or price <= 200 and wallet >= 1 or wallet >= 2
 
     def time_range(self, state: CollectionState, start: int, end: int) -> bool:
         return bool(self.time_mask(state) & sum(1 << index for index in range(start, end)))
@@ -243,47 +279,96 @@ class NativeLogic:
         return self.has_ri(state, INF_ITEMS.get(flag, ""))
 
     def evaluate(self, state: CollectionState, expression: str) -> bool:
-        events = defaultdict(int, {event: self.event_count(state, event) for event in EVENT_SYMBOLS})
+        events = _LazyEventCounts(state, self.player)
+        half_days_value: tuple[bool, ...] | None = None
+        time_mask_value: int | None = None
+
+        def half_days() -> tuple[bool, ...]:
+            nonlocal half_days_value
+            if half_days_value is None:
+                half_days_value = self.half_days(state)
+            return half_days_value
+
+        def time_mask() -> int:
+            nonlocal time_mask_value
+            if time_mask_value is None:
+                time_mask_value = 0
+                for owned, (start, end) in zip(half_days(), HALF_DAYS):
+                    if owned:
+                        for index in range(start, end + 1):
+                            time_mask_value |= 1 << index
+            return time_mask_value
+
+        def time_range(start: int, end: int) -> bool:
+            return bool(time_mask() & sum(1 << index for index in range(start, end)))
+
         option_values = {
             "RO_ACCESS_MAJORA_MASKS_COUNT": self.options.majora_masks_required.value,
             "RO_ACCESS_MAJORA_REMAINS_COUNT": self.options.majora_remains_required.value,
             "RO_ACCESS_TRIALS": self.options.trials_access.value,
             "RO_SHUFFLE_BOSS_SOULS": self.options.shuffle_boss_souls.value,
         }
-        env = {constant: constant for constant in CONSTANTS}
+        providers: dict[str, Callable[[], object]] = {
+            "HAS_MAGIC": lambda: self.magic(state),
+            "HAS_BOTTLE": lambda: self.bottle(state),
+            "CAN_BE_DEKU": lambda: self.has_ri(state, "RI_MASK_DEKU"),
+            "CAN_BE_GORON": lambda: self.has_ri(state, "RI_MASK_GORON"),
+            "CAN_BE_ZORA": lambda: self.has_ri(state, "RI_MASK_ZORA"),
+            "CAN_BE_DEITY": lambda: self.has_ri(state, "RI_MASK_FIERCE_DEITY"),
+            "CAN_USE_HUMAN_SWORD": lambda: self.sword_level(state) > 0,
+            "CAN_USE_SWORD": lambda: self.sword_level(state) > 0 or self.has_ri(
+                state, "RI_GREAT_FAIRY_SWORD") or self.has_ri(state, "RI_MASK_FIERCE_DEITY"),
+            "CAN_USE_EXPLOSIVE": lambda: self.bomb_level(state) > 0 or (
+                self.has_ri(state, "RI_MASK_BLAST") and self.shield_level(state) > 0),
+            "CAN_USE_PROJECTILE": lambda: self.bow_level(state) > 0 or self.has_ri(
+                state, "RI_HOOKSHOT") or self.has_ri(state, "RI_MASK_DEKU") and bool(env["HAS_MAGIC"]) or
+                self.has_ri(state, "RI_MASK_ZORA"),
+            "CAN_RIDE_EPONA": lambda: self.can_play_song(state, "EPONA"),
+            "CAN_HOOK_SCARECROW": lambda: self.has_ri(state, "RI_OCARINA") and self.has_ri(
+                state, "RI_HOOKSHOT") and sum(self.has_ri(state, "RI_OCARINA_BUTTON_" + button)
+                                               for button in ("A", "C_DOWN", "C_RIGHT", "C_LEFT", "C_UP")) >=
+                (2 if self.options.shuffle_ocarina_buttons.value else 0),
+            "CAN_LIGHT_TORCH_NEAR_ANOTHER": lambda: self.has_item(state, "ITEM_DEKU_STICK") or (
+                self.bow_level(state) > 0 and self.has_ri(state, "RI_ARROW_FIRE") and bool(env["HAS_MAGIC"])),
+            "CAN_TRAVERSE_WAIST_DEEP_WATER": lambda: not self.options.shuffle_swim.value or self.has_ri(
+                state, "RI_ABILITY_SWIM") or self.has_ri(state, "RI_MASK_DEKU") or self.has_ri(
+                state, "RI_MASK_ZORA") or self.has_ri(state, "RI_MASK_GORON"),
+            "CAN_GROW_BEAN_PLANT": lambda: self.has_ri(state, "RI_MAGIC_BEAN") and (
+                self.can_play_song(state, "STORMS") or bool(env["HAS_BOTTLE"]) and (
+                    events["RE_ACCESS_SPRING_WATER"] or events["RE_ACCESS_HOT_SPRING_WATER"])),
+            "CAN_USE_DAY2_RAIN_BEAN": lambda: self.has_ri(state, "RI_MAGIC_BEAN") and (
+                self.can_play_song(state, "STORMS") or bool(env["HAS_BOTTLE"]) and (
+                    events["RE_ACCESS_SPRING_WATER"] or events["RE_ACCESS_HOT_SPRING_WATER"]) or half_days()[2]),
+            "FOUND_ALL_FROGS": lambda: all(self.has_ri(state, item) for item in (
+                "RI_FROG_BLUE", "RI_FROG_CYAN", "RI_FROG_PINK", "RI_FROG_WHITE")),
+            "GBT_CAN_REVERSE_WATER_FLOW": lambda: bool(events["RE_GREAT_BAY_RED_SWITCH_1"] and
+                                                        events["RE_GREAT_BAY_RED_SWITCH_2"] and
+                                                        self.has_ri(state, "RI_HOOKSHOT")),
+            "GBT_GREEN_SWITCH_FLOW": lambda: all(events[event] for event in (
+                "RE_GREAT_BAY_GREEN_SWITCH_1", "RE_GREAT_BAY_GREEN_SWITCH_2", "RE_GREAT_BAY_GREEN_SWITCH_3")),
+            "BREAK_BOULDER_BEFORE_OR_BEAT_ALIENS_DAY": lambda: bool(
+                half_days()[0] and self.has_ri(state, "RI_MASK_GORON") and self.has_ri(
+                    state, "RI_POWDER_KEG") or events["RE_COWS_FROM_ALIENS"]),
+            "BREAK_BOULDER_BEFORE_OR_BEAT_ALIENS_NIGHT": lambda: bool(
+                half_days()[1] and self.has_ri(state, "RI_MASK_GORON") and self.has_ri(
+                    state, "RI_POWDER_KEG") or events["RE_COWS_FROM_ALIENS"]),
+        }
+        env = _LazyEnvironment(dict(EXPRESSION_CONSTANTS[expression]), providers)
         env.update({
             "RANDO_EVENTS": events, "RANDO_SAVE_OPTIONS": option_values,
             "RO_ACCESS_TRIALS_20_MASKS": 0, "RO_ACCESS_TRIALS_REMAINS": 1,
             "RO_ACCESS_TRIALS_FORMS": 2, "RO_ACCESS_TRIALS_OPEN": 3,
             "RO_GENERIC_NO": 0,
             "HAS_ITEM": lambda item: self.has_item(state, item),
-            "HAS_MAGIC": self.magic(state), "HAS_BOTTLE": self.bottle(state),
-            "CAN_BE_DEKU": self.has_ri(state, "RI_MASK_DEKU"),
-            "CAN_BE_GORON": self.has_ri(state, "RI_MASK_GORON"),
-            "CAN_BE_ZORA": self.has_ri(state, "RI_MASK_ZORA"),
-            "CAN_BE_DEITY": self.has_ri(state, "RI_MASK_FIERCE_DEITY"), "CAN_BE_HUMAN": True,
-            "CAN_USE_HUMAN_SWORD": self.sword_level(state) > 0,
-            "CAN_USE_SWORD": self.sword_level(state) > 0 or self.has_ri(state, "RI_GREAT_FAIRY_SWORD") or self.has_ri(state, "RI_MASK_FIERCE_DEITY"),
-            "CAN_USE_EXPLOSIVE": self.bomb_level(state) > 0 or (self.has_ri(state, "RI_MASK_BLAST") and self.shield_level(state) > 0),
-            "CAN_USE_PROJECTILE": self.bow_level(state) > 0 or self.has_ri(state, "RI_HOOKSHOT") or (self.has_ri(state, "RI_MASK_DEKU") and self.magic(state)) or self.has_ri(state, "RI_MASK_ZORA"),
-            "CAN_RIDE_EPONA": self.can_play_song(state, "EPONA"),
-            "CAN_HOOK_SCARECROW": self.has_ri(state, "RI_OCARINA") and self.has_ri(state, "RI_HOOKSHOT") and sum(self.has_ri(state, "RI_OCARINA_BUTTON_" + b) for b in ("A", "C_DOWN", "C_RIGHT", "C_LEFT", "C_UP")) >= (2 if self.options.shuffle_ocarina_buttons.value else 0),
-            "CAN_LIGHT_TORCH_NEAR_ANOTHER": self.has_item(state, "ITEM_DEKU_STICK") or (self.bow_level(state) > 0 and self.has_ri(state, "RI_ARROW_FIRE") and self.magic(state)),
-            "CAN_TRAVERSE_WAIST_DEEP_WATER": (not self.options.shuffle_swim.value or self.has_ri(state, "RI_ABILITY_SWIM")) or self.has_ri(state, "RI_MASK_DEKU") or self.has_ri(state, "RI_MASK_ZORA") or self.has_ri(state, "RI_MASK_GORON"),
-            "CAN_GROW_BEAN_PLANT": self.has_ri(state, "RI_MAGIC_BEAN") and (self.can_play_song(state, "STORMS") or self.bottle(state) and (events["RE_ACCESS_SPRING_WATER"] or events["RE_ACCESS_HOT_SPRING_WATER"])),
-            "CAN_USE_DAY2_RAIN_BEAN": self.has_ri(state, "RI_MAGIC_BEAN") and (self.can_play_song(state, "STORMS") or self.bottle(state) and (events["RE_ACCESS_SPRING_WATER"] or events["RE_ACCESS_HOT_SPRING_WATER"]) or self.half_days(state)[2]),
-            "FOUND_ALL_FROGS": all(self.has_ri(state, item) for item in ("RI_FROG_BLUE", "RI_FROG_CYAN", "RI_FROG_PINK", "RI_FROG_WHITE")),
-            "GBT_CAN_REVERSE_WATER_FLOW": events["RE_GREAT_BAY_RED_SWITCH_1"] and events["RE_GREAT_BAY_RED_SWITCH_2"] and self.has_ri(state, "RI_HOOKSHOT"),
-            "GBT_GREEN_SWITCH_FLOW": all(events[event] for event in ("RE_GREAT_BAY_GREEN_SWITCH_1", "RE_GREAT_BAY_GREEN_SWITCH_2", "RE_GREAT_BAY_GREEN_SWITCH_3")),
-            "BREAK_BOULDER_BEFORE_OR_BEAT_ALIENS_DAY": (self.half_days(state)[0] and self.has_ri(state, "RI_MASK_GORON") and self.has_ri(state, "RI_POWDER_KEG")) or events["RE_COWS_FROM_ALIENS"],
-            "BREAK_BOULDER_BEFORE_OR_BEAT_ALIENS_NIGHT": (self.half_days(state)[1] and self.has_ri(state, "RI_MASK_GORON") and self.has_ri(state, "RI_POWDER_KEG")) or events["RE_COWS_FROM_ALIENS"],
+            "CAN_BE_HUMAN": True,
             "CAN_PLAY_SONG": lambda song: self.can_play_song(state, song),
             "canPlaySong": lambda song: self.ocarina_buttons(state, song),
-            "CAN_USE_MAGIC_ARROW": lambda arrow: self.bow_level(state) > 0 and self.has_ri(state, f"RI_ARROW_{arrow}") and self.magic(state),
+            "CAN_USE_MAGIC_ARROW": lambda arrow: self.bow_level(state) > 0 and self.has_ri(
+                state, f"RI_ARROW_{arrow}") and bool(env["HAS_MAGIC"]),
             "CAN_USE_ABILITY": lambda ability: ability != "SWIM" or not self.options.shuffle_swim.value or self.has_ri(state, "RI_ABILITY_SWIM"),
             "CAN_ACCESS": lambda access: bool(events["RE_ACCESS_" + access]),
             "CAN_OWL_WARP": lambda owl: self.has_ri(state, OWL_ITEMS[owl]),
-            "CAN_AFFORD": lambda check: self.wallet_level(state) >= 1,
+            "CAN_AFFORD": lambda check: self.can_afford(state, check),
             "KEY_COUNT": lambda dungeon: self.key_count(state, dungeon),
             "HAS_ENOUGH_STRAY_FAIRIES": lambda dungeon: self.count_ri(state, f"RI_{DUNGEON_NAMES[dungeon]}_STRAY_FAIRY") >= self.options.stray_fairies_required.value,
             "HAS_ENOUGH_SKULLTULA_TOKENS": lambda scene: self.count_ri(state, "RI_GS_TOKEN_OCEAN" if scene == "SCENE_KINDAN2" else "RI_GS_TOKEN_SWAMP") >= self.options.skulltula_tokens_required.value,
@@ -298,23 +383,27 @@ class NativeLogic:
             "EQUIP_VALUE_SHIELD_MIRROR": 2,
             "CanAccessDungeon": lambda dungeon: self.can_access_dungeon(state, dungeon),
             "CanKillEnemy": lambda actor: self.can_kill_enemy(state, actor),
-            "CanGetPastBigOctoWithoutBoat": lambda: bool(events["RE_SOUTHERN_SWAMP_KILL_OCTOROK"] and self.has_ri(state, "RI_MASK_DEKU") or events["RE_CLEARED_WOODFALL_TEMPLE"] and env["CAN_TRAVERSE_WAIST_DEEP_WATER"]),
-            "CanGetPastBigOcto": lambda: bool(events["RE_SOUTHERN_SWAMP_RIDE_BOAT"] or events["RE_SOUTHERN_SWAMP_KILL_OCTOROK"] and self.has_ri(state, "RI_MASK_DEKU") or events["RE_CLEARED_WOODFALL_TEMPLE"] and env["CAN_TRAVERSE_WAIST_DEEP_WATER"]),
+            "CanGetPastBigOctoWithoutBoat": lambda: bool(events["RE_SOUTHERN_SWAMP_KILL_OCTOROK"] and
+                self.has_ri(state, "RI_MASK_DEKU") or events["RE_CLEARED_WOODFALL_TEMPLE"] and
+                bool(env["CAN_TRAVERSE_WAIST_DEEP_WATER"])),
+            "CanGetPastBigOcto": lambda: bool(events["RE_SOUTHERN_SWAMP_RIDE_BOAT"] or
+                events["RE_SOUTHERN_SWAMP_KILL_OCTOROK"] and self.has_ri(state, "RI_MASK_DEKU") or
+                events["RE_CLEARED_WOODFALL_TEMPLE"] and bool(env["CAN_TRAVERSE_WAIST_DEEP_WATER"])),
             "MoonMaskCount": lambda: self.mask_count(state), "RemainsCount": lambda: self.remains_count(state),
             "MeetsMoonRequirements": lambda: self.remains_count(state) >= self.options.moon_remains_required.value and self.mask_count(state) >= self.options.moon_masks_required.value,
-            "AT": lambda when: bool(self.time_mask(state) & (1 << TIME_INDEX[when])),
-            "BEFORE": lambda when: self.time_range(state, 0, TIME_INDEX[when]),
-            "AFTER": lambda when: self.time_range(state, TIME_INDEX[when], 45),
-            "BETWEEN": lambda start, end: self.time_range(state, TIME_INDEX[start], TIME_INDEX[end]),
+            "AT": lambda when: bool(time_mask() & (1 << TIME_INDEX[when])),
+            "BEFORE": lambda when: time_range(0, TIME_INDEX[when]),
+            "AFTER": lambda when: time_range(TIME_INDEX[when], 45),
+            "BETWEEN": lambda start, end: time_range(TIME_INDEX[start], TIME_INDEX[end]),
         })
         for index, label in enumerate(("DAY1", "NIGHT1", "DAY2", "NIGHT2", "DAY3", "NIGHT3")):
-            env["CLOCK_" + label] = lambda i=index: self.half_days(state)[i]
-            env["IS_" + label] = lambda i=index: self.half_days(state)[i]
+            env["CLOCK_" + label] = lambda i=index: half_days()[i]
+            env["IS_" + label] = lambda i=index: half_days()[i]
         env.update({
-            "IS_DAY": lambda: any(self.half_days(state)[::2]), "IS_NIGHT": lambda: any(self.half_days(state)[1::2]),
-            "FIRST_DAY": lambda: any(self.half_days(state)[:2]), "SECOND_DAY": lambda: any(self.half_days(state)[2:4]),
-            "FINAL_DAY": lambda: any(self.half_days(state)[4:]),
-            "MIDNIGHT": lambda: any(self.half_days(state)[index] for index in (1, 3, 5)),
+            "IS_DAY": lambda: any(half_days()[::2]), "IS_NIGHT": lambda: any(half_days()[1::2]),
+            "FIRST_DAY": lambda: any(half_days()[:2]), "SECOND_DAY": lambda: any(half_days()[2:4]),
+            "FINAL_DAY": lambda: any(half_days()[4:]),
+            "MIDNIGHT": lambda: any(half_days()[index] for index in (1, 3, 5)),
         })
         return bool(eval(COMPILED[expression], {"__builtins__": {}}, env))
 
